@@ -1,0 +1,49 @@
+# Assign groups based on job role if none specified
+if (-not $groups -and $jobRole -and $roleGroupMap[$jobRole]) {
+    $groups = $roleGroupMap[$jobRole]
+    Write-Log "Assigned groups for job role '$jobRole': $($groups -join ', ')"
+}
+
+# Validate input
+if (-not ($firstName -and $lastName -and $username)) {
+    Write-Log "Error: Missing fields for user '$username'. Skipping."
+    $failedUsers++
+    continue
+}
+
+# User properties
+$displayName = "$firstName $lastName"
+$samAccountName = $username
+$userPrincipalName = "$username@domain.com"  # Modify domain
+$password = New-RandomPassword
+$securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+
+# Create user
+try {
+    New-ADUser 
+        -Name $displayName 
+        -GivenName $firstName 
+        -Surname $lastName 
+        -SamAccountName $samAccountName 
+        -UserPrincipalName $userPrincipalName 
+        -Path $OU `
+        -AccountPassword $securePassword 
+        -Enabled $true 
+        -ChangePasswordAtLogon $true 
+        -ErrorAction Stop
+    Write-Log "Created user: $samAccountName (Password: $password)"
+
+    # Add to security groups
+    foreach ($group in $groups) {
+        try {
+            Add-ADGroupMember -Identity $group -Members $samAccountName -ErrorAction Stop
+            Write-Log "Added $samAccountName to group: $group"
+        } catch {
+            Write-Log "Warning: Failed to add $samAccountName to '$group'. Error: $($_.Exception.Message)"
+        }
+    }
+    $createdUsers++
+} catch {
+    Write-Log "Error: Failed to create user '$samAccountName'. Error: $($_.Exception.Message)"
+    $failedUsers++
+}
